@@ -374,6 +374,62 @@ const testDefs = [
     }
   },
   {
+    name: 'POST /v1/chat/completions (tool calling)',
+    desc: 'Request with tools returns tool_calls in response',
+    run: async () => {
+      const model = chatModel.value;
+      if (!model) throw new Error('no model selected');
+      const res = await fetch(baseUrl() + '/v1/chat/completions', {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({
+          model, max_tokens: 100,
+          messages: [{ role: 'user', content: 'What is the weather in Paris?' }],
+          tools: [{
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              description: 'Get current weather for a city',
+              parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] }
+            }
+          }],
+          tool_choice: 'required'
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + JSON.stringify(json));
+      const c = json.choices[0];
+      if (c.finish_reason !== 'tool_calls') throw new Error('expected finish_reason=tool_calls, got ' + c.finish_reason);
+      if (!c.message.tool_calls || c.message.tool_calls.length === 0) throw new Error('no tool_calls in response');
+      const tc = c.message.tool_calls[0];
+      if (!tc.id) throw new Error('tool_call missing id');
+      if (tc.type !== 'function') throw new Error('expected type=function, got ' + tc.type);
+      if (!tc.function.name) throw new Error('tool_call missing function.name');
+      if (!tc.function.arguments) throw new Error('tool_call missing function.arguments');
+      return 'tool=' + tc.function.name + ' args=' + tc.function.arguments;
+    }
+  },
+  {
+    name: 'Usage: token counts present',
+    desc: 'Response includes usage with prompt_tokens, completion_tokens, total_tokens',
+    run: async () => {
+      const model = chatModel.value;
+      if (!model) throw new Error('no model selected');
+      const res = await fetch(baseUrl() + '/v1/chat/completions', {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Say hi' }], max_tokens: 5 }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const u = json.usage;
+      if (!u) throw new Error('missing usage object');
+      if (typeof u.prompt_tokens !== 'number' || u.prompt_tokens <= 0) throw new Error('invalid prompt_tokens');
+      if (typeof u.completion_tokens !== 'number' || u.completion_tokens <= 0) throw new Error('invalid completion_tokens');
+      if (typeof u.total_tokens !== 'number') throw new Error('missing total_tokens');
+      if (u.total_tokens !== u.prompt_tokens + u.completion_tokens) throw new Error('total != prompt + completion');
+      return 'prompt=' + u.prompt_tokens + ' completion=' + u.completion_tokens + ' total=' + u.total_tokens;
+    }
+  },
+  {
     name: 'Error: invalid model',
     desc: 'Requesting a non-existent model returns 404 with error object',
     run: async () => {
