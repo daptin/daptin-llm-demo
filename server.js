@@ -40,6 +40,11 @@ const LISTEN_HOST = env("LISTEN_HOST", "127.0.0.1");
 const LISTEN_PORT = parseInt(env("LISTEN_PORT", "7777"), 10);
 const DAPTIN_BASE_URL = env("DAPTIN_BASE_URL", "http://localhost:6336");
 const DAPTIN_TOKEN = env("DAPTIN_TOKEN", "");
+let LLM_OPERATIONS = ["chat"];
+try {
+  const configured = JSON.parse(env("LLM_OPERATIONS", '["chat"]'));
+  if (Array.isArray(configured)) LLM_OPERATIONS = configured;
+} catch {}
 
 // ── HTML UI ──────────────────────────────────────────────────────────────────
 
@@ -139,6 +144,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 // ── Config ───────────────────────────────────────────────────────────────────
 const cfgUrl = document.getElementById('cfg-url');
 const cfgToken = document.getElementById('cfg-token');
+const configuredOperations = ${JSON.stringify(LLM_OPERATIONS)};
 cfgUrl.value = localStorage.getItem('daptin-url') || '${DAPTIN_BASE_URL}';
 cfgToken.value = localStorage.getItem('daptin-token') || '${DAPTIN_TOKEN}';
 cfgUrl.addEventListener('change', () => localStorage.setItem('daptin-url', cfgUrl.value));
@@ -358,19 +364,21 @@ const testDefs = [
     }
   },
   {
-    name: 'POST /v1/completions (legacy)',
-    desc: 'Legacy completions endpoint mapped to chat',
+    name: 'POST /v1/completions (native)',
+    desc: 'Native text-completion response',
+    operation: 'text_completion',
     run: async () => {
       const model = chatModel.value;
       if (!model) throw new Error('no model selected');
       const res = await fetch(baseUrl() + '/v1/completions', {
         method: 'POST', headers: headers(),
-        body: JSON.stringify({ model, prompt: 'Say "legacy-ok".', max_tokens: 20 }),
+        body: JSON.stringify({ model, prompt: 'Say "completion-ok".', max_tokens: 20 }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + JSON.stringify(json));
       if (!json.choices || json.choices.length === 0) throw new Error('no choices');
-      return 'content="' + (json.choices[0].message?.content || JSON.stringify(json.choices[0])).slice(0, 80) + '"';
+      if (typeof json.choices[0].text !== 'string') throw new Error('missing choices[0].text');
+      return 'text="' + json.choices[0].text.slice(0, 80) + '"';
     }
   },
   {
@@ -457,7 +465,7 @@ const testDefs = [
       return 'correctly returned 400';
     }
   },
-];
+].filter(test => !test.operation || configuredOperations.includes(test.operation));
 
 async function runTests() {
   const container = document.getElementById('test-results');
